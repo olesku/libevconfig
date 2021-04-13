@@ -1,12 +1,27 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <memory>
+#include <stdexcept>
 
 namespace evconfig {
   enum class ValueType : uint8_t {
     INT,
     BOOL,
     STRING
+  };
+
+  class ConfigNotLoadedException : public std::exception {
+    public:
+      std::string msg;
+
+      ConfigNotLoadedException(const std::string& optName) {
+        msg = "Tried to get config parameter \"" + optName + "\" before config is loaded.";
+      }
+
+      const char* what() const throw() {
+        return msg.c_str();
+      }
   };
 
   class InvalidTypeException {
@@ -34,7 +49,7 @@ namespace evconfig {
             case ValueType::BOOL:
               return "boolean";
             break;
-          
+
             case ValueType::STRING:
               return "string";
             break;
@@ -43,6 +58,32 @@ namespace evconfig {
               return "unknown";
           }
         }
+  };
+
+  class InvalidConfigOptionException : public std::exception {
+    public:
+      std::string msg;
+
+      InvalidConfigOptionException(std::string optName) {
+        msg = "Invalid config option " + optName;
+      }
+
+      const char * what() const throw() {
+        return msg.c_str();
+      }
+  };
+
+  class SyntaxErrorException : public std::exception {
+    public:
+      std::string msg;
+
+      SyntaxErrorException(std::string path, unsigned int lineNo) {
+        msg = "Invalid config syntax at " + path + ":" + std::to_string(lineNo);
+      }
+
+      const char * what() const throw() {
+        return msg.c_str();
+      }
   };
 
   class ConfigOption {
@@ -56,12 +97,12 @@ namespace evconfig {
       };
 
       ValueType _type;
-      
+
     public:
-      ConfigOption() {};
+      ConfigOption(const std::string& optName, ValueType type, const std::string& defaultValue);
       ~ConfigOption() {};
 
-      const std::string& getName() {
+      const std::string& getName() const {
         return _optionName;
       }
 
@@ -81,30 +122,29 @@ namespace evconfig {
         return boolean;
       }
 
-      const std::string& getString() {
+      const std::string& getString() const {
         if (_type != ValueType::STRING) {
           throw InvalidTypeException(getName(), ValueType::STRING, _type);
         }
         return str;
       }
 
-      void setValue(const std::string& optName, ValueType type, const std::string& value);
+      void setValue(const std::string& value);
   };
 
   class Config {
     public:
       Config();
 
-      void defineOption(const std::string& optName, ValueType type, const std::string& defaultValue);      
+      void defineOption(const std::string& optName, ValueType type, const std::string& defaultValue);
       void loadFromFile(const std::string& path);
       void loadFromEnvironment();
-      
-      int getInt(const std::string& optName);
-      bool getBool(const std::string& optName);
-      const std::string& getString(const std::string& optName);
+
+      int getInt(const std::string& optName) const;
+      bool getBool(const std::string& optName) const;
+      const std::string& getString(const std::string& optName) const;
 
     private:
-      bool _isLoaded;
-      std::vector<ConfigOption> options;
+      std::vector<std::unique_ptr<ConfigOption>> _options;
   };
 }
