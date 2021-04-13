@@ -57,10 +57,10 @@ namespace evconfig {
   void Config::loadFromFile(const std::string& path) {
     std::fstream f;
     std::string line;
+    unsigned int lineNo = 0;
 
     f.open(path, std::fstream::in);
 
-    unsigned int lineNo = 0;
     while(std::getline(f, line)) {
       std::string parsedKey, parsedValue;
       unsigned int pos = 0;
