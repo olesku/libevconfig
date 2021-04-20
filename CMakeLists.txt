@@ -1,7 +1,7 @@
 project(libevconfig)
 
 set (CMAKE_CXX_COMPILER "clang++")
-set (CMAKE_CXX_FLAGS "-Wall")
+set (CMAKE_CXX_FLAGS "-Wall -std=c++17")
 
 include(CTest)
 
@@ -16,3 +16,11 @@ if (BUILD_TESTING)
   target_link_libraries(libevconfig_test PRIVATE Catch2::Catch2)
   add_test(libevconfig_test libevconfig_test)
 endif()
+
+add_custom_target(
+        clangformat
+        COMMAND /usr/bin/clang-format
+        -style=file
+        -i
+        ${ALL_SOURCE_FILES}
+)

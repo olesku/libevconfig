@@ -1,150 +1,161 @@
-#include <string>
-#include <vector>
-#include <unordered_map>
+#ifndef __INCLUDE_CONFIG_HPP__
+#define __INCLUDE_CONFIG_HPP__
+
 #include <memory>
+#include <sstream>
 #include <stdexcept>
+#include <string>
+#include <unordered_map>
+#include <variant>
 
 namespace evconfig {
-  enum class ValueType : uint8_t {
-    INT,
-    BOOL,
-    STRING
+
+enum class ValueSettings : uint8_t {
+  REQUIRED,
+  OPTIONAL
+};
+
+using ConfigValue = std::variant<int, bool, std::string>;
+
+template <class... Ts>
+struct overload : Ts... { using Ts::operator()...; };
+template <class... Ts>
+overload(Ts...) -> overload<Ts...>;
+
+class InvalidConfigOptionException : public std::exception {
+public:
+  std::string msg;
+
+  InvalidConfigOptionException(std::string optName, std::string path = "", unsigned int lineNo = 0) {
+    if (!path.empty() && lineNo > 0)
+      msg = "Invalid config option \"" + optName + "\" at " + path + ":" + std::to_string(lineNo);
+    else
+      msg = "Invalid config option \"" + optName;
+  }
+
+  const char* what() const throw() {
+    return msg.c_str();
+  }
+};
+
+class SyntaxErrorException : public std::runtime_error {
+public:
+  SyntaxErrorException(std::string path, unsigned int lineNo) : runtime_error("Invalid syntax at " + path + ":" + std::to_string(lineNo)) {}
+};
+
+class RequiredOptionMissingException : public std::runtime_error {
+public:
+  RequiredOptionMissingException(const std::string optName) : runtime_error("Missing required option \"" + optName + "\"") {}
+};
+
+class ConfigOption {
+  friend class Config;
+
+public:
+  ConfigOption(const std::string& optName, ValueSettings settings) : _name(optName), _settings(settings), _hasValue(false){};
+
+  ~ConfigOption(){};
+
+protected:
+  const std::string& name() const {
+    return _name;
+  }
+
+  void _set(const std::string& value) {
+    std::visit(overload{
+                   [&](int) {
+                     try {
+                       _value    = std::stoi(value);
+                       _hasValue = true;
+                     } catch (...) {
+                       throw std::runtime_error{"Invalid number: " + value};
+                     }
+                   },
+
+                   [&](bool) {
+                     if (value == "true" || value == "TRUE" || value == "1") {
+                       _value    = true;
+                       _hasValue = true;
+                     }
+
+                     else if (value == "false" || value == "FALSE" || value == "0") {
+                       _value    = false;
+                       _hasValue = true;
+                     }
+
+                     else
+                       throw std::runtime_error{"Invalid boolean value: " + value};
+                   },
+
+                   [&](std::string) {
+                     _value    = value;
+                     _hasValue = true;
+                   }},
+               _value);
+  }
+
+  template <typename T>
+  const T& _get() const {
+    const auto* v = std::get_if<T>(&_value);
+    if (v == nullptr)
+      throw std::runtime_error{"Requested invalid type for config parameter \"" + _name + "\""};
+    return *v;
+  }
+
+  void clear() {
+    _value    = {};
+    _hasValue = false;
+  }
+
+private:
+  std::string _name;
+  ValueSettings _settings;
+  ConfigValue _value;
+  bool _hasValue;
+};
+
+class Config {
+public:
+  Config();
+
+  template <typename T>
+  void defineOption(const std::string& optName, ValueSettings settings = ValueSettings::REQUIRED) {
+    if (_options.find(optName) != _options.end())
+      throw(std::runtime_error{"Redefinition of option \"" + optName + " \""});
+
+    _options[optName]         = std::make_unique<ConfigOption>(optName, settings);
+    _options[optName]->_value = T{};
+  }
+
+  template <typename T>
+  const T& get(const std::string& optName) const {
+    auto opt = _options.find(optName);
+    if (opt == _options.end())
+      throw InvalidConfigOptionException{optName};
+
+    return opt->second->_get<T>();
+  }
+
+  void setFile(const std::string& fileName) { _cfgFile = fileName; };
+  void setLoadFromEnv(bool shouldLoad) { _loadEnv = true; }
+  void clearValues();
+  void load();
+
+  Config& operator<<(const char* str) {
+    _cfgStreamBuf << str;
+    return *this;
   };
 
-  class ConfigNotLoadedException : public std::exception {
-    public:
-      std::string msg;
+private:
+  std::unordered_map<std::string, std::unique_ptr<ConfigOption>> _options;
+  std::stringstream _cfgStreamBuf;
+  std::string _cfgFile;
 
-      ConfigNotLoadedException(const std::string& optName) {
-        msg = "Tried to get config parameter \"" + optName + "\" before config is loaded.";
-      }
+  bool _loadEnv;
+  void _loadFromStream(std::istream& data, const std::string& path = "");
+  void _loadFromFile(const std::string& path);
+  void _loadFromEnv();
+};
+} // namespace evconfig
 
-      const char* what() const throw() {
-        return msg.c_str();
-      }
-  };
-
-  class InvalidTypeException {
-    public:
-      std::string msg;
-
-      InvalidTypeException(const std::string& optName, ValueType requestedType, ValueType actualType) {
-        msg = "Could not get " + optName + " as type " + _typeToString(requestedType) +
-              " actual type is " + _typeToString(actualType);
-      }
-
-      const char * what() const throw() {
-        return msg.c_str();
-      }
-
-      private:
-        std::string _msg;
-
-        const std::string _typeToString(ValueType type) {
-          switch(type) {
-            case ValueType::INT:
-              return "integer";
-            break;
-
-            case ValueType::BOOL:
-              return "boolean";
-            break;
-
-            case ValueType::STRING:
-              return "string";
-            break;
-
-            default:
-              return "unknown";
-          }
-        }
-  };
-
-  class InvalidConfigOptionException : public std::exception {
-    public:
-      std::string msg;
-
-      InvalidConfigOptionException(std::string optName) {
-        msg = "Invalid config option " + optName;
-      }
-
-      const char * what() const throw() {
-        return msg.c_str();
-      }
-  };
-
-  class SyntaxErrorException : public std::exception {
-    public:
-      std::string msg;
-
-      SyntaxErrorException(std::string path, unsigned int lineNo) {
-        msg = "Invalid config syntax at " + path + ":" + std::to_string(lineNo);
-      }
-
-      const char * what() const throw() {
-        return msg.c_str();
-      }
-  };
-
-  class ConfigOption {
-    private:
-      std::string _optionName;
-
-      union {
-        int32_t number;
-        bool boolean;
-        std::string str;
-      };
-
-      ValueType _type;
-
-    public:
-      ConfigOption(const std::string& optName, ValueType type, const std::string& defaultValue);
-      ~ConfigOption() {};
-
-      const std::string& getName() const {
-        return _optionName;
-      }
-
-      int32_t getInt() {
-        if (_type != ValueType::INT) {
-          throw InvalidTypeException(getName(), ValueType::INT, _type);
-        }
-
-        return number;
-      }
-
-      bool getBool() {
-        if (_type != ValueType::BOOL) {
-          throw InvalidTypeException(getName(), ValueType::BOOL, _type);
-        }
-
-        return boolean;
-      }
-
-      const std::string& getString() const {
-        if (_type != ValueType::STRING) {
-          throw InvalidTypeException(getName(), ValueType::STRING, _type);
-        }
-        return str;
-      }
-
-      void setValue(const std::string& value);
-  };
-
-  class Config {
-    public:
-      Config();
-
-      void defineOption(const std::string& optName, ValueType type, const std::string& defaultValue);
-      void loadFromFile(const std::string& path);
-      void loadFromEnvironment();
-
-      int getInt(const std::string& optName) const;
-      bool getBool(const std::string& optName) const;
-      const std::string& getString(const std::string& optName) const;
-
-    private:
-      std::vector<std::unique_ptr<ConfigOption>> _options;
-  };
-}
+#endif

@@ -1,80 +1,214 @@
 #define CATCH_CONFIG_MAIN
 
-#include <catch2/catch.hpp>
 #include "config.hpp"
+#include <catch2/catch.hpp>
 
-#include <iostream>
 #include <fstream>
+#include <iostream>
+#include <stdio.h>
 
 using namespace std;
 using namespace evconfig;
 
-Config cfg;
+using Catch::Matchers::Contains;
 
 TEST_CASE("libevconfig") {
-  cfg.defineOption("test_number", ValueType::INT, "1337");
-
-  cfg.defineOption("false_boolean_lowercase", ValueType::BOOL, "false");
-  cfg.defineOption("false_boolean_uppercase", ValueType::BOOL, "FALSE");
-  cfg.defineOption("false_boolean_0", ValueType::BOOL, "0");
-
-  cfg.defineOption("true_boolean_lowercase", ValueType::BOOL, "true");
-  cfg.defineOption("true_boolean_uppercase", ValueType::BOOL, "TRUE");
-  cfg.defineOption("true_boolean_0", ValueType::BOOL, "1");
-
-  cfg.defineOption("test_string", ValueType::STRING, "Foobar");
-
-  SECTION("Check that defaults is set correctly") {
-    SECTION("Test numbers") {
-      REQUIRE(cfg.getInt("test_number") == 1337);
-    }
-
-    SECTION("Test booleans") {
-      REQUIRE(cfg.getBool("false_boolean_lowercase") == false);
-      REQUIRE(cfg.getBool("false_boolean_uppercase") == false);
-      REQUIRE(cfg.getBool("false_boolean_0") == false);
-
-      REQUIRE(cfg.getBool("true_boolean_lowercase") == true);
-      REQUIRE(cfg.getBool("true_boolean_uppercase") == true);
-      REQUIRE(cfg.getBool("true_boolean_0") == true);
-    }
-
-    SECTION("Test strings") {
-      REQUIRE(cfg.getString("test_string") == "Foobar");
-    }
+  SECTION("Test numbers") {
+    Config cfg;
+    cfg.defineOption<int>("test_number", ValueSettings::REQUIRED);
+    cfg << "test_number = 1337";
+    cfg.load();
+    REQUIRE(cfg.get<int>("test_number") == 1337);
   }
 
-  /*ofstream testFile;
-  testFile.open("test.conf");
-  testFile << "test_number = 10" << endl;
-  testFile << "false_boolean_lowercase = false" << endl;
-  testFile << "false_boolean_uppercase = FALSE" << endl;
-  testFile << "false_boolean_0 = 0" << endl;
-  testFile << "true_boolean_lowercase = true" << endl;
-  testFile << "true_boolean_uppercase = TRUE" << endl;
-  testFile << "true_boolean_0 = 1" << endl;
-  testFile << "test_string = Hello world" << endl;
-  testFile.close();*/
+  SECTION("Test lowercase booleans") {
+    Config cfg;
+    cfg.defineOption<bool>("false_boolean_lowercase", ValueSettings::REQUIRED);
+    cfg.defineOption<bool>("true_boolean_lowercase", ValueSettings::REQUIRED);
 
-  SECTION("Check parameters in configfile is set correctly") {
-    cfg.loadFromFile("test.conf");
+    cfg << "false_boolean_lowercase = false\n";
+    cfg << "true_boolean_lowercase = true\n";
+    cfg.load();
 
-    SECTION("Test numbers") {
-      REQUIRE(cfg.getInt("test_number") == 10);
-    }
+    REQUIRE(cfg.get<bool>("false_boolean_lowercase") == false);
+    REQUIRE(cfg.get<bool>("true_boolean_lowercase") == true);
+  }
 
-    SECTION("Test booleans") {
-      REQUIRE(cfg.getBool("false_boolean_lowercase") == false);
-      REQUIRE(cfg.getBool("false_boolean_uppercase") == false);
-      REQUIRE(cfg.getBool("false_boolean_0") == false);
+  SECTION("Test uppercase booleans") {
+    Config cfg;
+    cfg.defineOption<bool>("false_boolean_uppercase", ValueSettings::REQUIRED);
+    cfg.defineOption<bool>("true_boolean_uppercase", ValueSettings::REQUIRED);
 
-      REQUIRE(cfg.getBool("true_boolean_lowercase") == true);
-      REQUIRE(cfg.getBool("true_boolean_uppercase") == true);
-      REQUIRE(cfg.getBool("true_boolean_0") == true);
-    }
+    cfg << "false_boolean_uppercase = FALSE\n";
+    cfg << "true_boolean_uppercase = TRUE\n";
+    cfg.load();
 
-    SECTION("Test strings") {
-      REQUIRE(cfg.getString("test_string") == "Hello world!");
-    }
+    REQUIRE(cfg.get<bool>("false_boolean_uppercase") == false);
+    REQUIRE(cfg.get<bool>("true_boolean_uppercase") == true);
+  }
+
+  SECTION("Test booleans defined as numbers") {
+    Config cfg;
+    cfg.defineOption<bool>("0_boolean", ValueSettings::REQUIRED);
+    cfg.defineOption<bool>("1_boolean", ValueSettings::REQUIRED);
+
+    cfg << "0_boolean = 0\n";
+    cfg << "1_boolean = 1\n";
+    cfg.load();
+
+    REQUIRE(cfg.get<bool>("0_boolean") == false);
+    REQUIRE(cfg.get<bool>("1_boolean") == true);
+  }
+
+  SECTION("Test strings") {
+    Config cfg;
+    cfg.defineOption<string>("test_string", ValueSettings::REQUIRED);
+    cfg << "test_string = Hello world!\n";
+    cfg.load();
+    REQUIRE(cfg.get<string>("test_string") == "Hello world!");
+  }
+
+  SECTION("Test that requesting invalid type throws exception") {
+    Config cfg;
+    cfg.defineOption<int>("my_number");
+    cfg << "my_number = 4\n";
+    cfg.load();
+    REQUIRE_THROWS_WITH(cfg.get<bool>("my_number"), Contains("Requested invalid type for config parameter"));
+  }
+
+  SECTION("Check that we throw exception if option is defined, but empty") {
+    Config cfg;
+    cfg.defineOption<bool>("my_number2");
+    cfg << "my_number =\n";
+    REQUIRE_THROWS_AS(cfg.load(), SyntaxErrorException);
+  }
+
+  SECTION("Check that we throw exception if = is missing in a option definition") {
+    Config cfg;
+    cfg.defineOption<int>("my_number");
+    cfg << "my_number\n";
+    REQUIRE_THROWS_AS(cfg.load(), SyntaxErrorException);
+  }
+
+  SECTION("Test that we support comments") {
+    Config cfg;
+    cfg.defineOption<string>("my_option");
+    cfg << "# This is my option.\n";
+    cfg << "my_option = foobar\n";
+    cfg.load();
+    REQUIRE(cfg.get<string>("my_option") == "foobar");
+  }
+
+  SECTION("Test that we support whitespaces") {
+    Config cfg;
+    cfg.defineOption<string>("whitespace_option");
+    cfg << "  whitespace_option             =      foobar\n";
+    cfg.load();
+    REQUIRE(cfg.get<string>("whitespace_option") == "foobar");
+  }
+
+  SECTION("Throw exception if required value is not set") {
+    Config cfg;
+    cfg.defineOption<int>("required_option", ValueSettings::REQUIRED);
+    REQUIRE_THROWS_AS(cfg.load(), RequiredOptionMissingException);
+  }
+
+  SECTION("Ceheck that we support quoted values") {
+    Config cfg;
+    cfg.defineOption<string>("test_string_double_quote", ValueSettings::REQUIRED);
+    cfg.defineOption<string>("test_string_single_quote", ValueSettings::REQUIRED);
+    cfg << "test_string_double_quote = \"Hello world!\"\n";
+    cfg << "test_string_single_quote = 'Hello world!'\n";
+    cfg.load();
+
+    REQUIRE(cfg.get<string>("test_string_double_quote") == "Hello world!");
+    REQUIRE(cfg.get<string>("test_string_single_quote") == "Hello world!");
+  }
+
+  SECTION("Check setting values through envvars") {
+    Config cfg;
+    cfg.defineOption<int>("int_opt");
+    cfg.defineOption<bool>("bool_opt");
+    cfg.defineOption<string>("string_opt");
+    cfg.setLoadFromEnv(true);
+
+    setenv("int_opt", "1337", 0);
+    setenv("bool_opt", "true", 0);
+    setenv("string_opt", "hello world", 0);
+
+    cfg.load();
+
+    REQUIRE(cfg.get<int>("int_opt") == 1337);
+    REQUIRE(cfg.get<bool>("bool_opt") == true);
+    REQUIRE(cfg.get<string>("string_opt") == "hello world");
+  }
+
+  SECTION("Uppercase version of envvar should also work") {
+    Config cfg;
+    cfg.defineOption<string>("my_opt");
+    cfg.setLoadFromEnv(true);
+
+    setenv("MY_OPT", "Howdy", 0);
+
+    cfg.load();
+
+    REQUIRE(cfg.get<string>("my_opt") == "Howdy");
+  }
+
+  SECTION("Test reading from config file that contains all possible types") {
+    const char* evilconfig =
+    "# Booleans\n                                \
+    my_bool_n         =      1\n                 \
+    my_bool_n_dquote  =     \"1\"\n              \
+    my_bool_n_squote  =     \'0\'\n\n            \
+    my_bool           =      true\n              \
+    my_bool_dquote    =     \"TRUE\"\n           \
+    my_bool_squote    =     \'FALSE\'\n\n        \
+    # Integers\n                                 \
+    my_int            =      100\n               \
+    my_int_dquote     =     \"101\"\n            \
+    my_int_squote     =     \'102\'\n\n          \
+    # Strings\n                                  \
+    my_string         =      Hello world!\n      \
+    my_string_dquote  =     \"Hello world!!\"\n  \
+    my_string_squote  =     \'Hello world!!!\'";
+
+    unlink("evilconfig_test.conf");
+    ofstream f;
+    f.open("evilconfig_test.conf");
+    f << evilconfig;
+    f.close();
+
+    Config cfg;
+    cfg.defineOption<bool>("my_bool_n");
+    cfg.defineOption<bool>("my_bool_n_dquote");
+    cfg.defineOption<bool>("my_bool_n_squote");
+    cfg.defineOption<bool>("my_bool");
+    cfg.defineOption<bool>("my_bool_dquote");
+    cfg.defineOption<bool>("my_bool_squote");
+    cfg.defineOption<int>("my_int");
+    cfg.defineOption<int>("my_int_dquote");
+    cfg.defineOption<int>("my_int_squote");
+    cfg.defineOption<string>("my_string");
+    cfg.defineOption<string>("my_string_dquote");
+    cfg.defineOption<string>("my_string_squote");
+
+    cfg.setFile("evilconfig_test.conf");
+    cfg.load();
+
+    REQUIRE(cfg.get<bool>("my_bool_n") == true);
+    REQUIRE(cfg.get<bool>("my_bool_n_dquote") == true);
+    REQUIRE(cfg.get<bool>("my_bool_n_squote") == false);
+    REQUIRE(cfg.get<bool>("my_bool") == true);
+    REQUIRE(cfg.get<bool>("my_bool_dquote") == true);
+    REQUIRE(cfg.get<bool>("my_bool_squote") == false);
+    REQUIRE(cfg.get<int>("my_int") == 100);
+    REQUIRE(cfg.get<int>("my_int_dquote") == 101);
+    REQUIRE(cfg.get<int>("my_int_squote") == 102);
+    REQUIRE(cfg.get<string>("my_string") == "Hello world!");
+    REQUIRE(cfg.get<string>("my_string_dquote") == "Hello world!!");
+    REQUIRE(cfg.get<string>("my_string_squote") == "Hello world!!!");
+
+    unlink("evilconfig_test.conf");
   }
 }
