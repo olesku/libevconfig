@@ -5,8 +5,8 @@ all: build
 build:
 	mkdir -p build && \
 	cd build && \
-	cmake .. && \
-	make
+	cmake -GNinja .. && \
+	ninja
 
 test: build
 	build/libevconfig_test

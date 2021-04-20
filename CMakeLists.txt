@@ -1,5 +1,6 @@
 project(libevconfig)
 
+cmake_minimum_required (VERSION 2.9)
 set (CMAKE_CXX_COMPILER "clang++")
 set (CMAKE_CXX_FLAGS "-Wall -std=c++17")
 
